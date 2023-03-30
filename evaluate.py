@@ -22,6 +22,8 @@ class Package():
         self._section = words[2]
         self._priority = words[3]
         self._source_package = source_package
+        self._missing_rdepends = set[str]()
+        self._missing = False
 
         if len(words) < 5:
             self._architectures = [source_package.architecture]
@@ -31,26 +33,38 @@ class Package():
         self.check_priority()
 
     @property
-    def source_package(self):
+    def source_package(self) -> "SourcePackage":
         return self._source_package
 
     @property
-    def architectures(self):
+    def architectures(self) -> list[str]:
         return self._architectures
+    
+    @property
+    def missing(self) -> bool:
+        return self._missing
+
+    @missing.setter
+    def missing(self, value):
+        self._missing = value
 
     @property
-    def name(self):
+    def missing_rdepends(self):
+        return self._missing_rdepends
+    
+    @property
+    def name(self) -> str:
         return self._name
 
-    def check_type(self):
+    def check_type(self) -> None:
         if self._type not in ['deb', 'udeb']:
             raise RuntimeError(f'unknown type {self._type}')
 
-    def check_priority(self):
+    def check_priority(self) -> None:
         if self._priority not in ['essential', 'required', 'important', 'standard', 'optional', 'extra']:
             raise RuntimeError(f'unknown priority {self._priority}')
 
-    def parse_archs(self, line: str):
+    def parse_archs(self, line: str) -> list[str]:
         if not line.startswith('arch='):
             raise RuntimeError(f'non an arch= string')
         line = line.split(sep='=')[1]
@@ -61,15 +75,18 @@ class Package():
         print(f'Package: {self._name} ({self._source_package.version}) [{arch_string}])')
         self._source_package.print()
 
+    def missing_rdepends_add(self, name: str):
+        self._missing_rdepends.add(name)
+
 class SourcePackage():
 
     def __init__(self, name: str):
-        self.name = name
+        self._name = name
         self.packages = {}
         self._dependencies = {}
 
     def print(self):
-        print(f'SourcePackage: {self.name} ({self._version}) [{self._architecture}]')
+        print(f'SourcePackage: {self._name} ({self._version}) [{self._architecture}]')
         for dependency in self._dependencies.values():
             dependency.print()
 
@@ -84,6 +101,10 @@ class SourcePackage():
     @property
     def dependencies(self) -> dict[str, Dependency]:
         return self._dependencies
+    
+    @property
+    def name(self) -> str:
+        return self._name
 
     @property
     def version(self):
@@ -103,8 +124,8 @@ class Evaluate():
 
     def parse_source(self, arch: str):
         file_name = f'./{arch}/Sources.txt'
-        source_packages = {}
-        packages = {}
+        source_packages: dict[str, SourcePackage] = {}
+        packages: dict[str, Package] = {}
         with open(file_name, 'r', encoding='utf-8') as file:
             lines = file.read().splitlines()
             source_package = None
@@ -174,12 +195,21 @@ class Evaluate():
         self.ref_pkg_set = self.parse_packages(ref_arch)
         self.pkg_set = self.parse_packages(arch)
 
-    def analyze_package(self, name: str):
+        for name in self.ref_pkg_set:
+            if name not in self.pkg_set:
+                package = self.packages[name]
+                package.missing = True
+
+    def analyze_package(self, name: str, path: list[str]):
         package: Package
         source_package: SourcePackage
 
+        if name in path:
+            return
+        path.append(name)
         package = self.packages[name]
-        print(f'{name} {package.architectures}')
+        depth = len(path)
+        print(f'{depth}: {name} {package.architectures} {package.source_package.name}')
         source_package = package.source_package
         for dependency in source_package.dependencies.values():
             if dependency.package_name in self.pkg_set:
@@ -187,14 +217,27 @@ class Evaluate():
             if dependency.package_name not in self.ref_pkg_set:
                 continue
             print(f'missing dependency: {dependency.package_name}')
-
+            package = self.packages[dependency.package_name]
+            package.missing_rdepends_add(name)
+            self.analyze_package(dependency.package_name, path)
+        path.remove(name)
+        return
 
     def analyze(self):
         for name in self.ref_pkg_set:
             if name in self.pkg_set:
                 continue
-            self.analyze_package(name)
+            self.analyze_package(name, [])
+
+    def report(self):
+        ranked_list : list[Package] = sorted(self.packages.values(), key=lambda package: -len(package.missing_rdepends))
+        for package in ranked_list:
+            count = len(package.missing_rdepends)
+            if count > 0 or package.missing:
+                print(f'#{count} {package.name} ({package.source_package.name})')
 
 if __name__ == '__main__':
     ev = Evaluate('amd64', 'riscv64')
     ev.analyze()
+    ev.report()
+    pass

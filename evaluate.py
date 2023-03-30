@@ -82,6 +82,10 @@ class SourcePackage():
         self._architecture = architecture
 
     @property
+    def dependencies(self) -> dict[str, Dependency]:
+        return self._dependencies
+
+    @property
     def version(self):
         return self._version
 
@@ -135,22 +139,62 @@ class Evaluate():
                         list = 'Package-List:'
                     case 'Version:':
                         source_package.version = words[1]
+        return packages, source_packages
 
-        for source_package in source_packages.values():
-            source_package.print()
-        for package in packages.values():
-            package.print()
-
+    def parse_packages(self, arch: str):
+        file_name = f'./{arch}/main/binary/Packages.txt'
+        packages = set()
+        with open(file_name, 'r', encoding='utf-8') as file:
+            lines = file.read().splitlines()
+            source_package = None
+            list = None
+            for line in lines:
+                if len(line) == 0:
+                    continue
+                words = line.split()
+                if len(words) == 0:
+                    continue
+                if line[0] == ' ':
+                    continue
+                match words[0]:
+                    case 'Package:':
+                        packages.add(words[1])
+        return packages
 
     def __init__(self, ref_arch, arch):
         """constructor
         ref_arch -- reference architecture
         arch -- architecture to analyze
         """
+
         self.arch = arch
         self.ref_arch = ref_arch
 
-        self.parse_source(ref_arch)
+        self.packages, self.source_packages = self.parse_source(ref_arch)
+        self.ref_pkg_set = self.parse_packages(ref_arch)
+        self.pkg_set = self.parse_packages(arch)
+
+    def analyze_package(self, name: str):
+        package: Package
+        source_package: SourcePackage
+
+        package = self.packages[name]
+        print(f'{name} {package.architectures}')
+        source_package = package.source_package
+        for dependency in source_package.dependencies.values():
+            if dependency.package_name in self.pkg_set:
+                continue
+            if dependency.package_name not in self.ref_pkg_set:
+                continue
+            print(f'missing dependency: {dependency.package_name}')
+
+
+    def analyze(self):
+        for name in self.ref_pkg_set:
+            if name in self.pkg_set:
+                continue
+            self.analyze_package(name)
 
 if __name__ == '__main__':
     ev = Evaluate('amd64', 'riscv64')
+    ev.analyze()

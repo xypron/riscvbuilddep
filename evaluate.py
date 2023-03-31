@@ -39,7 +39,7 @@ class Package():
     @property
     def architectures(self) -> list[str]:
         return self._architectures
-    
+
     @property
     def missing(self) -> bool:
         return self._missing
@@ -51,7 +51,7 @@ class Package():
     @property
     def missing_rdepends(self):
         return self._missing_rdepends
-    
+
     @property
     def name(self) -> str:
         return self._name
@@ -101,7 +101,7 @@ class SourcePackage():
     @property
     def dependencies(self) -> dict[str, Dependency]:
         return self._dependencies
-    
+
     @property
     def name(self) -> str:
         return self._name
@@ -122,10 +122,11 @@ class SourcePackage():
 
 class Evaluate():
 
-    def parse_source(self, arch: str):
-        file_name = f'./{arch}/Sources.txt'
+    def parse_source_component(self, arch: str, component: str):
         source_packages: dict[str, SourcePackage] = {}
         packages: dict[str, Package] = {}
+        file_name = f'./{arch}/{component}/Sources'
+
         with open(file_name, 'r', encoding='utf-8') as file:
             lines = file.read().splitlines()
             source_package = None
@@ -160,10 +161,22 @@ class Evaluate():
                         list = 'Package-List:'
                     case 'Version:':
                         source_package.version = words[1]
+
         return packages, source_packages
 
-    def parse_packages(self, arch: str):
-        file_name = f'./{arch}/main/binary/Packages.txt'
+    def parse_source(self, arch: str, components: list[str]):
+        source_packages: dict[str, SourcePackage] = {}
+        packages: dict[str, Package] = {}
+
+        for component in components:
+            pkgs, src_pkgs = self.parse_source_component(arch, component)
+            packages.update(pkgs)
+            source_packages.update(src_pkgs)
+
+        return packages, source_packages
+
+    def parse_packages_component(self, arch: str, component: str):
+        file_name = f'./{arch}/{component}/Packages'
         packages = set()
         with open(file_name, 'r', encoding='utf-8') as file:
             lines = file.read().splitlines()
@@ -182,7 +195,14 @@ class Evaluate():
                         packages.add(words[1])
         return packages
 
-    def __init__(self, ref_arch, arch):
+    def parse_packages(self, arch: str, components: list[str]):
+        packages = set()
+
+        for component in components:
+            packages.update(self.parse_packages_component(arch, component))
+        return packages
+
+    def __init__(self, ref_arch: str, arch: str, components: list[str]):
         """constructor
         ref_arch -- reference architecture
         arch -- architecture to analyze
@@ -191,14 +211,16 @@ class Evaluate():
         self.arch = arch
         self.ref_arch = ref_arch
 
-        self.packages, self.source_packages = self.parse_source(ref_arch)
-        self.ref_pkg_set = self.parse_packages(ref_arch)
-        self.pkg_set = self.parse_packages(arch)
+        self.packages, self.source_packages = self.parse_source(ref_arch, components)
+        self.ref_pkg_set = self.parse_packages(ref_arch, components)
+        self.pkg_set = self.parse_packages(arch, components)
 
         for name in self.ref_pkg_set:
-            if name not in self.pkg_set:
+            if name not in self.pkg_set and name in self.packages.keys():
                 package = self.packages[name]
                 package.missing = True
+
+        pass
 
     def analyze_package(self, name: str, path: list[str]):
         package: Package
@@ -206,17 +228,21 @@ class Evaluate():
 
         if name in path:
             return
+        if name not in self.packages.keys():
+            return
         path.append(name)
         package = self.packages[name]
         depth = len(path)
-        print(f'{depth}: {name} {package.architectures} {package.source_package.name}')
+        # print(f'{depth}: {name} {package.architectures} {package.source_package.name}')
         source_package = package.source_package
         for dependency in source_package.dependencies.values():
             if dependency.package_name in self.pkg_set:
                 continue
             if dependency.package_name not in self.ref_pkg_set:
                 continue
-            print(f'missing dependency: {dependency.package_name}')
+            # print(f'missing dependency: {dependency.package_name}')
+            if dependency.package_name not in self.packages.keys():
+                continue
             package = self.packages[dependency.package_name]
             package.missing_rdepends_add(name)
             self.analyze_package(dependency.package_name, path)
@@ -235,9 +261,12 @@ class Evaluate():
             count = len(package.missing_rdepends)
             if count > 0 or package.missing:
                 print(f'#{count} {package.name} ({package.source_package.name})')
+                if count > 0:
+                    impacted =  ''.join([x + ',' for x in package.missing_rdepends])[:-1]
+                    print(f'impacted: {impacted}')
 
 if __name__ == '__main__':
-    ev = Evaluate('amd64', 'riscv64')
+    ev = Evaluate('amd64', 'riscv64', ['main','restricted','universe'])
     ev.analyze()
     ev.report()
     pass

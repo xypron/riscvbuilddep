@@ -61,7 +61,7 @@ class Package():
             raise RuntimeError(f'unknown type {self._type}')
 
     def check_priority(self) -> None:
-        if self._priority not in ['essential', 'required', 'important', 'standard', 'optional', 'extra']:
+        if self._priority not in ['essential', 'required', 'important', 'standard', 'optional', 'extra', 'unknown']:
             raise RuntimeError(f'unknown priority {self._priority}')
 
     def parse_archs(self, line: str) -> list[str]:
@@ -266,7 +266,7 @@ class Evaluate():
                     print(f'impacted: {impacted}')
 
 if __name__ == '__main__':
-    ev = Evaluate('amd64', 'riscv64', ['main','restricted','universe'])
+    ev = Evaluate('arm64', 'riscv64', ['main','restricted','universe'])
     ev.analyze()
     ev.report()
     pass
